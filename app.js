@@ -1,16 +1,11 @@
-/* Niche Outreach Daily — static / GitHub Pages (localStorage) */
-const LS_ACCOUNTS = "nod_v1_accounts";
-const LS_STATE = "nod_v1_state";
-const LS_CONFIG = "nod_v1_config";
-
-const DEFAULT_CONFIG = {
-  app_name: "Niche Outreach Daily",
-  niche_label: "AI / 크리에이터",
-  language: "ko",
-};
+/* Niche Outreach Daily — static + optional local X API bridge */
+const LS_ACCOUNTS = "nod_v2_accounts";
+const LS_STATE = "nod_v2_state";
 
 const DEFAULT_STATE = () => ({
+  my_handle: "",
   following: [],
+  followers: [],
   skip: [],
   meta: {},
   history: {},
@@ -18,24 +13,26 @@ const DEFAULT_STATE = () => ({
   cooldown_days: 14,
   last_batch_date: "",
   last_batch: [],
+  related_boost: [],
 });
 
 const $ = (s) => document.querySelector(s);
+const hasLocalApi = () =>
+  location.hostname === "127.0.0.1" ||
+  location.hostname === "localhost" ||
+  location.port === "8766";
 
 function toast(msg) {
   const el = $("#toast");
   el.textContent = msg;
   el.classList.add("show");
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.remove("show"), 2200);
+  toast._t = setTimeout(() => el.classList.remove("show"), 2400);
 }
 
 function todayStr() {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function daysSince(iso) {
@@ -53,7 +50,19 @@ function normHandle(h) {
   h = String(h || "").trim();
   if (h.startsWith("@")) h = h.slice(1);
   h = h.split("/").pop().split("?")[0];
-  return h.trim();
+  return h.trim().replace(/^https?:\/\/(x|twitter)\.com\//i, "");
+}
+
+function parseHandles(text) {
+  return [
+    ...new Set(
+      String(text || "")
+        .replaceAll(",", "\n")
+        .split(/[\s\n]+/)
+        .map(normHandle)
+        .filter((h) => h && /^[A-Za-z0-9_]{1,15}$/.test(h))
+    ),
+  ];
 }
 
 function loadJSON(key, fallback) {
@@ -89,14 +98,65 @@ function escapeHtml(s) {
     .replaceAll('"', "&quot;");
 }
 
+function copyText(text) {
+  return navigator.clipboard.writeText(text).then(() => true).catch(() => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    return true;
+  });
+}
+
+/** Score related accounts from pool using following overlap + tags */
+function scoreRelated(accounts, following, myHandle) {
+  const fl = new Set((following || []).map((h) => h.toLowerCase()));
+  const me = normHandle(myHandle).toLowerCase();
+
+  // tags from people I already follow who are in the pool
+  const tagScore = {};
+  for (const a of accounts) {
+    const h = normHandle(a.handle).toLowerCase();
+    if (!fl.has(h)) continue;
+    for (const t of a.tags || []) {
+      tagScore[t] = (tagScore[t] || 0) + 2;
+    }
+    if (a.tier === "core") tagScore["__core"] = (tagScore["__core"] || 0) + 1;
+  }
+
+  const scored = [];
+  for (const a of accounts) {
+    const h = normHandle(a.handle);
+    const hl = h.toLowerCase();
+    if (!h || hl === me || fl.has(hl)) continue;
+    let s = 0;
+    for (const t of a.tags || []) s += tagScore[t] || 0;
+    if (a.tier === "core") s += 8;
+    else if (a.tier === "mid") s += 4;
+    else if (a.tier === "growth") s += 2;
+    // mild boost if note mentions AI/coding (starter pack)
+    const note = (a.note || "") + " " + (a.name || "");
+    if (/AI|프롬프트|코딩|영상|툴|agent|Claude|Grok/i.test(note)) s += 2;
+    scored.push({ handle: h, score: s, account: a });
+  }
+  scored.sort((a, b) => b.score - a.score || a.handle.localeCompare(b.handle));
+  return scored;
+}
+
 function pickBatch(accounts, state, force) {
   const today = todayStr();
   const size = Number(state.daily_size) || 20;
   const cooldown = Number(state.cooldown_days) || 14;
-  const following = new Set(state.following || []);
-  const skip = new Set(state.skip || []);
+  const following = new Set((state.following || []).map((h) => h.toLowerCase()));
+  const skip = new Set((state.skip || []).map((h) => h.toLowerCase()));
   const meta = state.meta || (state.meta = {});
   const history = state.history || (state.history = {});
+  const boost = new Map(
+    (state.related_boost || []).map((h, i) => [normHandle(h).toLowerCase(), 1000 - i])
+  );
+  const me = normHandle(state.my_handle || "").toLowerCase();
 
   if (!force && state.last_batch_date === today && state.last_batch?.length) {
     return [...state.last_batch];
@@ -105,17 +165,20 @@ function pickBatch(accounts, state, force) {
   const candidates = [];
   for (const a of accounts) {
     const h = normHandle(a.handle);
-    if (!h || following.has(h) || skip.has(h)) continue;
-    const m = meta[h] || {};
+    const hl = h.toLowerCase();
+    if (!h || hl === me || following.has(hl) || skip.has(hl)) continue;
+    const m = meta[h] || meta[hl] || {};
     const last = m.last_shown || "";
     if (m.hearted && m.replied && daysSince(last) < cooldown) continue;
     const tierW = { core: 0, mid: 1, growth: 2, edge: 3 }[a.tier] ?? 2;
-    const shownCount = Number(history[h]?.shown || 0);
-    const score =
+    const shownCount = Number(history[h]?.shown || history[hl]?.shown || 0);
+    let score =
       tierW * 100 +
       shownCount * 10 +
       (last ? Math.min(daysSince(last), 30) : 0) +
       (m.hearted && m.replied ? 50 : 0);
+    // related boost: lower is better in sort → subtract boost
+    score -= boost.get(hl) || 0;
     candidates.push([score, h]);
   }
   candidates.sort((a, b) => a[0] - b[0] || a[1].localeCompare(b[1]));
@@ -125,7 +188,8 @@ function pickBatch(accounts, state, force) {
     for (const a of accounts) {
       if (batch.length >= size) break;
       const h = normHandle(a.handle);
-      if (!h || following.has(h) || skip.has(h) || batch.includes(h)) continue;
+      const hl = h.toLowerCase();
+      if (!h || hl === me || following.has(hl) || skip.has(hl) || batch.includes(h)) continue;
       const m = meta[h] || {};
       const last = m.last_shown || "";
       if (!last || daysSince(last) >= cooldown) batch.push(h);
@@ -152,14 +216,13 @@ function pickBatch(accounts, state, force) {
 let store = {
   accountsDoc: { version: 2, pack_name: "", note: "", accounts: [] },
   state: DEFAULT_STATE(),
-  config: { ...DEFAULT_CONFIG },
 };
 let currentItems = [];
+let xBridge = { available: false, xurl: false, authenticated: false };
 
 function persist() {
   saveJSON(LS_ACCOUNTS, store.accountsDoc);
   saveJSON(LS_STATE, store.state);
-  saveJSON(LS_CONFIG, store.config);
 }
 
 function pill(label, val, cls = "") {
@@ -172,28 +235,22 @@ function renderStats(stats) {
     pill("오늘", stats.batch, "accent"),
     pill("하트", `${stats.hearted}/${stats.batch}`),
     pill("댓글", `${stats.replied}/${stats.batch}`),
-    pill("둘 다", `${stats.complete}/${stats.batch}`, "good"),
-    pill("팔로잉 제외", stats.following),
+    pill("완료", `${stats.complete}/${stats.batch}`, "good"),
+    pill("팔로잉제외", stats.following),
   ].join("");
   const pct = stats.batch ? Math.round((stats.complete / stats.batch) * 100) : 0;
   $("#bar").style.width = `${pct}%`;
   $("#dailySize").value = stats.daily_size;
   $("#cooldown").value = stats.cooldown_days;
-}
-
-function applyConfig(cfg) {
-  const name = cfg.app_name || DEFAULT_CONFIG.app_name;
-  $("#appTitle").textContent = name;
-  document.title = name;
-  $("#nicheLabel").textContent = cfg.niche_label || "니치";
-  $("#cfgAppName").value = cfg.app_name || "";
-  $("#cfgNiche").value = cfg.niche_label || "";
+  $("#followingCount").textContent = `${stats.following}명`;
+  $("#followersCount").textContent = `${(store.state.followers || []).length}명`;
 }
 
 function cardHtml(item, idx) {
   const done = item.hearted && item.replied;
   const tags = (item.tags || []).map((t) => `<span class="tag">#${t}</span>`).join("");
   const tier = item.tier || "mid";
+  const rel = item.related ? `<span class="tag">관련</span>` : "";
   return `
   <article class="card ${done ? "done" : ""}" data-handle="${item.handle}">
     <div class="card-top">
@@ -204,7 +261,7 @@ function cardHtml(item, idx) {
       <span class="tier ${tier}">${tier}</span>
     </div>
     <div class="note">${escapeHtml(item.note || "")}</div>
-    <div class="tags">${tags}</div>
+    <div class="tags">${rel}${tags}</div>
     <div class="links">
       <a class="btn" href="${item.profile}" target="_blank" rel="noopener">프로필</a>
       <a class="btn" href="https://x.com/${item.handle}" target="_blank" rel="noopener">타임라인</a>
@@ -231,7 +288,7 @@ function buildToday(force = false) {
   const byH = Object.fromEntries(
     accounts.map((a) => [normHandle(a.handle), a]).filter(([h]) => h)
   );
-  const following = new Set(store.state.following || []);
+  const boostSet = new Set((store.state.related_boost || []).map((h) => h.toLowerCase()));
   currentItems = batch.map((h) => {
     const a = byH[h] || { handle: h, name: h, tags: [], note: "" };
     const m = store.state.meta?.[h] || {};
@@ -241,7 +298,7 @@ function buildToday(force = false) {
       profile: `https://x.com/${h}`,
       hearted: !!m.hearted,
       replied: !!m.replied,
-      following: following.has(h),
+      related: boostSet.has(h.toLowerCase()),
       last_shown: m.last_shown || "",
     };
   });
@@ -250,9 +307,9 @@ function buildToday(force = false) {
 
 function render() {
   $("#dateLabel").textContent = todayStr();
-  applyConfig(store.config);
+  $("#myHandle").value = store.state.my_handle || "";
   const items = currentItems;
-  const stats = {
+  renderStats({
     pool: (store.accountsDoc.accounts || []).length,
     batch: items.length,
     hearted: items.filter((x) => x.hearted).length,
@@ -261,8 +318,7 @@ function render() {
     following: (store.state.following || []).length,
     daily_size: store.state.daily_size || 20,
     cooldown_days: store.state.cooldown_days || 14,
-  };
-  renderStats(stats);
+  });
 
   const grid = $("#grid");
   const empty = $("#empty");
@@ -287,17 +343,10 @@ function bindCards() {
         m[field] = inp.checked;
         if (inp.checked) m[`${field}_at`] = new Date().toISOString();
         persist();
-        inp.closest(".chk").classList.toggle("on", inp.checked);
-        const hearted = card.querySelector('input[data-field="hearted"]').checked;
-        const replied = card.querySelector('input[data-field="replied"]').checked;
-        card.classList.toggle("done", hearted && replied);
         const item = currentItems.find((x) => x.handle === handle);
-        if (item) {
-          item.hearted = hearted;
-          item.replied = replied;
-        }
+        if (item) item[field] = inp.checked;
         render();
-        toast(`@${handle} ${field} ${inp.checked ? "✓" : "—"}`);
+        toast(`@${handle} ${field}`);
       });
     });
     card.querySelectorAll("button[data-act]").forEach((btn) => {
@@ -327,44 +376,98 @@ async function loadSeedAccounts() {
     const res = await fetch("./data/accounts.json", { cache: "no-store" });
     if (!res.ok) throw new Error(String(res.status));
     return await res.json();
-  } catch (e) {
-    console.warn("seed fetch failed", e);
+  } catch {
     return { version: 2, pack_name: "empty", accounts: [] };
   }
 }
 
-async function init() {
-  const hasLocal = !!localStorage.getItem(LS_ACCOUNTS);
-  store.config = { ...DEFAULT_CONFIG, ...loadJSON(LS_CONFIG, DEFAULT_CONFIG) };
-  store.state = { ...DEFAULT_STATE(), ...loadJSON(LS_STATE, DEFAULT_STATE) };
-
-  if (hasLocal) {
-    store.accountsDoc = loadJSON(LS_ACCOUNTS, { accounts: [] });
-  } else {
-    store.accountsDoc = await loadSeedAccounts();
-    persist();
+async function probeXBridge() {
+  const el = $("#xStatus");
+  const row = $("#xApiRow");
+  if (!hasLocalApi()) {
+    el.className = "x-status no";
+    el.textContent =
+      "X API: 웹 단독 모드 — 팔로워 자동 수집 불가. 붙여넣기 사용. (로컬 run.bat + xurl 시 API 버튼 활성)";
+    row.hidden = true;
+    return;
   }
-
-  // ?pack=https://...
-  const params = new URLSearchParams(location.search);
-  const packUrl = params.get("pack");
-  if (packUrl) {
-    try {
-      await importPackFromUrl(packUrl, "merge", false);
-      toast("URL 팩 로드됨");
-    } catch (e) {
-      toast("팩 URL 실패: " + e.message);
+  try {
+    const res = await fetch("/api/x/status", { cache: "no-store" });
+    if (!res.ok) throw new Error("no bridge");
+    xBridge = await res.json();
+    if (xBridge.xurl && xBridge.authenticated) {
+      el.className = "x-status ok";
+      el.textContent = "X API: xurl 연동됨 · 팔로잉/팔로워 가져오기 가능";
+      row.hidden = false;
+    } else if (xBridge.xurl) {
+      el.className = "x-status no";
+      el.textContent =
+        "X API: xurl 설치됨, 로그인 필요 → 터미널에서 `xurl auth oauth2` 후 새로고침";
+      row.hidden = true;
+    } else {
+      el.className = "x-status no";
+      el.textContent =
+        "X API: xurl 없음. `npm i -g @xdevplatform/xurl` 후 auth, 또는 붙여넣기 사용";
+      row.hidden = true;
     }
+  } catch {
+    el.className = "x-status no";
+    el.textContent = "X API: 로컬 서버 API 없음 — 붙여넣기 모드";
+    row.hidden = true;
   }
+}
 
-  buildToday(false);
+async function apiFetchList(kind) {
+  const handle = normHandle($("#myHandle").value || store.state.my_handle);
+  if (!handle) return toast("내 핸들 먼저 입력");
+  const max = Number($("#fetchMax").value) || 500;
+  toast(`${kind} 가져오는 중…`);
+  try {
+    const res = await fetch(
+      `/api/x/${kind}?handle=${encodeURIComponent(handle)}&max=${max}`,
+      { cache: "no-store" }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    const handles = (data.handles || []).map(normHandle).filter(Boolean);
+    if (kind === "following") {
+      store.state.following = [...new Set([...(store.state.following || []), ...handles])].sort();
+      $("#followingText").value = store.state.following.map((h) => "@" + h).join("\n");
+    } else {
+      store.state.followers = [...new Set([...(store.state.followers || []), ...handles])].sort();
+      $("#followersText").value = store.state.followers.map((h) => "@" + h).join("\n");
+    }
+    store.state.my_handle = handle;
+    persist();
+    buildToday(true);
+    render();
+    toast(`${kind} ${handles.length}명 (누적 반영)`);
+  } catch (e) {
+    toast("실패: " + (e.message || e));
+  }
+}
+
+function runRelated() {
+  const me = normHandle($("#myHandle").value || store.state.my_handle);
+  store.state.my_handle = me;
+  const following = store.state.following || [];
+  const scored = scoreRelated(store.accountsDoc.accounts || [], following, me);
+  const top = scored.slice(0, Number(store.state.daily_size) || 20).map((x) => x.handle);
+  store.state.related_boost = top;
+  // force new batch prioritizing related
+  store.state.last_batch_date = "";
+  store.state.last_batch = [];
+  persist();
+  buildToday(true);
   render();
+  const msg = following.length
+    ? `관련 추천 ${top.length}명 (팔로잉 ${following.length} 기준 태그 가중)`
+    : `관련 추천 ${top.length}명 (팔로잉 없음 → 풀 core/mid 우선). 팔로잉 넣으면 더 정확해짐`;
+  toast(msg);
 }
 
 function mergeAccounts(list, mode) {
-  if (mode === "replace") {
-    store.accountsDoc.accounts = [];
-  }
+  if (mode === "replace") store.accountsDoc.accounts = [];
   const existing = new Map(
     (store.accountsDoc.accounts || []).map((a) => [normHandle(a.handle).toLowerCase(), a])
   );
@@ -374,6 +477,7 @@ function mergeAccounts(list, mode) {
     const h = normHandle(a.handle);
     if (!h) continue;
     const key = h.toLowerCase();
+    if (mode !== "replace" && existing.has(key)) continue;
     const entry = {
       handle: h,
       name: a.name || h,
@@ -382,47 +486,29 @@ function mergeAccounts(list, mode) {
       verified: !!a.verified,
       note: a.note || "imported",
     };
-    if (mode !== "replace" && existing.has(key)) continue;
-    if (mode === "replace" || !existing.has(key)) {
-      store.accountsDoc.accounts = store.accountsDoc.accounts || [];
-      store.accountsDoc.accounts.push(entry);
-      existing.set(key, entry);
-      added++;
-    }
+    store.accountsDoc.accounts = store.accountsDoc.accounts || [];
+    store.accountsDoc.accounts.push(entry);
+    existing.set(key, entry);
+    added++;
   }
   return added;
 }
 
 function parsePack(pack) {
   let accountsList = [];
-  let accountsDocMeta = {};
-  if (pack.accounts && Array.isArray(pack.accounts)) {
-    accountsList = pack.accounts;
-  } else if (pack.accounts && typeof pack.accounts === "object") {
+  let meta = {};
+  if (Array.isArray(pack.accounts)) accountsList = pack.accounts;
+  else if (pack.accounts && typeof pack.accounts === "object") {
     accountsList = pack.accounts.accounts || [];
-    accountsDocMeta = pack.accounts;
-  } else if (Array.isArray(pack.items)) {
-    accountsList = pack.items;
-  }
-  return { accountsList, accountsDocMeta, config: pack.config, state: pack.state };
-}
-
-async function importPackFromUrl(url, mode, withState) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error(String(res.status));
-  const pack = await res.json();
-  applyPackObject(pack, mode, withState);
+    meta = pack.accounts;
+  } else if (Array.isArray(pack.items)) accountsList = pack.items;
+  return { accountsList, meta, state: pack.state };
 }
 
 function applyPackObject(pack, mode, withState) {
-  const { accountsList, accountsDocMeta, config, state } = parsePack(pack);
-  if (accountsDocMeta.pack_name) store.accountsDoc.pack_name = accountsDocMeta.pack_name;
-  if (accountsDocMeta.note) store.accountsDoc.note = accountsDocMeta.note;
-  if (pack.pack_name) store.accountsDoc.pack_name = pack.pack_name;
+  const { accountsList, meta, state } = parsePack(pack);
+  if (meta.pack_name) store.accountsDoc.pack_name = meta.pack_name;
   const added = mergeAccounts(accountsList, mode);
-  if (config && typeof config === "object") {
-    store.config = { ...store.config, ...config };
-  }
   if (withState && state && typeof state === "object") {
     store.state = { ...DEFAULT_STATE(), ...state };
   }
@@ -432,7 +518,96 @@ function applyPackObject(pack, mode, withState) {
   return added;
 }
 
+async function init() {
+  const hasLocal = !!localStorage.getItem(LS_ACCOUNTS);
+  store.state = { ...DEFAULT_STATE(), ...loadJSON(LS_STATE, DEFAULT_STATE) };
+  if (hasLocal) {
+    store.accountsDoc = loadJSON(LS_ACCOUNTS, { accounts: [] });
+  } else {
+    // migrate v1 if present
+    const v1 = localStorage.getItem("nod_v1_accounts");
+    if (v1) {
+      try {
+        store.accountsDoc = JSON.parse(v1);
+      } catch {
+        store.accountsDoc = await loadSeedAccounts();
+      }
+      const s1 = localStorage.getItem("nod_v1_state");
+      if (s1) {
+        try {
+          store.state = { ...DEFAULT_STATE(), ...JSON.parse(s1) };
+        } catch { /* ignore */ }
+      }
+    } else {
+      store.accountsDoc = await loadSeedAccounts();
+    }
+    persist();
+  }
+
+  if (store.state.following?.length) {
+    $("#followingText").value = store.state.following.map((h) => "@" + h).join("\n");
+  }
+  if (store.state.followers?.length) {
+    $("#followersText").value = store.state.followers.map((h) => "@" + h).join("\n");
+  }
+
+  const params = new URLSearchParams(location.search);
+  if (params.get("pack")) {
+    try {
+      const res = await fetch(params.get("pack"), { cache: "no-store" });
+      applyPackObject(await res.json(), "merge", false);
+    } catch (e) {
+      toast("pack URL 실패");
+    }
+  }
+
+  await probeXBridge();
+  buildToday(false);
+  render();
+}
+
 // events
+$("#btnSaveMe").addEventListener("click", () => {
+  store.state.my_handle = normHandle($("#myHandle").value);
+  persist();
+  toast(store.state.my_handle ? `@${store.state.my_handle} 저장` : "핸들 비움");
+});
+
+$("#btnOpenMe").addEventListener("click", () => {
+  const h = normHandle($("#myHandle").value || store.state.my_handle);
+  if (!h) return toast("핸들 입력");
+  window.open(`https://x.com/${h}`, "_blank", "noopener");
+});
+
+$("#btnRelated").addEventListener("click", runRelated);
+$("#btnUseFollowingExclude").addEventListener("click", () => {
+  const handles = parseHandles($("#followingText").value);
+  if (handles.length) {
+    store.state.following = [...new Set([...(store.state.following || []), ...handles])].sort();
+  }
+  persist();
+  buildToday(true);
+  render();
+  toast(`팔로잉 제외 ${store.state.following.length}명`);
+});
+
+$("#btnCopyFollowers").addEventListener("click", async () => {
+  const list = store.state.followers || [];
+  if (!list.length) return toast("팔로워 없음 — 붙여넣기 또는 API");
+  await copyText(list.map((h) => "@" + h).join("\n"));
+  toast(`팔로워 ${list.length} 복사`);
+});
+
+$("#btnCopyFollowing").addEventListener("click", async () => {
+  const list = store.state.following || [];
+  if (!list.length) return toast("팔로잉 없음");
+  await copyText(list.map((h) => "@" + h).join("\n"));
+  toast(`팔로잉 ${list.length} 복사`);
+});
+
+$("#btnFetchFollowing").addEventListener("click", () => apiFetchList("following"));
+$("#btnFetchFollowers").addEventListener("click", () => apiFetchList("followers"));
+
 $("#btnRefresh").addEventListener("click", () => {
   buildToday(false);
   render();
@@ -454,27 +629,23 @@ $("#btnOpenAll").addEventListener("click", () => {
 });
 
 $("#btnExportPack").addEventListener("click", () => {
-  const pack = {
+  downloadJson(`niche-outreach-pack-${todayStr()}.json`, {
     format: "niche-outreach-pack",
     version: 1,
     exported_at: new Date().toISOString(),
-    config: store.config,
     accounts: store.accountsDoc,
-  };
-  downloadJson(`niche-outreach-pack-${todayStr()}.json`, pack);
+  });
   toast("팩 다운로드");
 });
 
 $("#btnExportFull").addEventListener("click", () => {
-  const pack = {
+  downloadJson(`niche-outreach-backup-${todayStr()}.json`, {
     format: "niche-outreach-pack",
     version: 1,
     exported_at: new Date().toISOString(),
-    config: store.config,
     accounts: store.accountsDoc,
     state: store.state,
-  };
-  downloadJson(`niche-outreach-backup-${todayStr()}.json`, pack);
+  });
   toast("백업 다운로드");
 });
 
@@ -485,29 +656,21 @@ $("#btnSaveSettings").addEventListener("click", () => {
   toast("설정 저장");
 });
 
-$("#btnSaveConfig").addEventListener("click", () => {
-  store.config.app_name = $("#cfgAppName").value || DEFAULT_CONFIG.app_name;
-  store.config.niche_label = $("#cfgNiche").value || DEFAULT_CONFIG.niche_label;
-  persist();
-  applyConfig(store.config);
-  toast("니치/이름 저장");
-});
-
 $("#btnImportFollowing").addEventListener("click", () => {
-  const text = $("#followingText").value;
-  const handles = text
-    .replaceAll(",", "\n")
-    .split("\n")
-    .map(normHandle)
-    .filter(Boolean);
-  const fl = new Set(store.state.following || []);
-  handles.forEach((h) => fl.add(h));
-  store.state.following = [...fl].sort();
+  const handles = parseHandles($("#followingText").value);
+  store.state.following = handles.sort();
   persist();
-  $("#followingText").value = "";
   buildToday(true);
   render();
-  toast(`팔로잉 ${store.state.following.length}`);
+  toast(`팔로잉 ${handles.length}`);
+});
+
+$("#btnImportFollowers").addEventListener("click", () => {
+  const handles = parseHandles($("#followersText").value);
+  store.state.followers = handles.sort();
+  persist();
+  render();
+  toast(`팔로워 ${handles.length}`);
 });
 
 $("#btnAddAccounts").addEventListener("click", () => {
@@ -526,7 +689,6 @@ $("#btnAddAccounts").addEventListener("click", () => {
     if (!h || existing.has(h.toLowerCase())) continue;
     const tags = parts.slice(1).filter((p) => p.startsWith("#")).map((p) => p.slice(1));
     const name = parts.slice(1).filter((p) => !p.startsWith("#")).join(" ") || h;
-    store.accountsDoc.accounts = store.accountsDoc.accounts || [];
     store.accountsDoc.accounts.push({
       handle: h,
       name,
@@ -551,9 +713,9 @@ $("#btnImportPack").addEventListener("click", () => {
     if (!raw) return toast("JSON 붙여넣기");
     const pack = JSON.parse(raw);
     const mode = document.querySelector('input[name="packMode"]:checked')?.value || "merge";
-    const added = applyPackObject(pack, mode, $("#importState").checked);
+    const n = applyPackObject(pack, mode, $("#importState").checked);
     $("#packText").value = "";
-    toast(`가져옴 +${added}`);
+    toast(`가져옴 +${n}`);
   } catch (e) {
     toast(String(e.message || e));
   }
@@ -563,19 +725,23 @@ $("#btnLoadPackUrl").addEventListener("click", async () => {
   const url = $("#packUrl").value.trim();
   if (!url) return toast("URL 입력");
   try {
+    const res = await fetch(url, { cache: "no-store" });
+    const pack = await res.json();
     const mode = document.querySelector('input[name="packMode"]:checked')?.value || "merge";
-    await importPackFromUrl(url, mode, $("#importState").checked);
-    toast("URL 팩 OK");
+    applyPackObject(pack, mode, $("#importState").checked);
+    toast("URL OK");
   } catch (e) {
     toast("실패: " + e.message);
   }
 });
 
-$("#btnResetLocal").addEventListener("click", async () => {
-  if (!confirm("이 브라우저의 아웃리치 데이터를 지울까요?")) return;
+$("#btnResetLocal").addEventListener("click", () => {
+  if (!confirm("이 브라우저 데이터 초기화?")) return;
   localStorage.removeItem(LS_ACCOUNTS);
   localStorage.removeItem(LS_STATE);
-  localStorage.removeItem(LS_CONFIG);
+  localStorage.removeItem("nod_v1_accounts");
+  localStorage.removeItem("nod_v1_state");
+  localStorage.removeItem("nod_v1_config");
   location.reload();
 });
 

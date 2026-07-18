@@ -322,6 +322,47 @@ input[type="text"] { width: 160px; }
   font-size: 0.8rem;
 }
 
+.me-panel h2 { margin-bottom: 6px; }
+.hint, .muted { color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
+.hint { margin: 0 0 10px; }
+.me-row { align-items: center; gap: 6px; }
+.me-row .at {
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 1.1rem;
+}
+.me-row input[type="text"] {
+  width: min(240px, 50vw);
+  font-size: 1rem;
+  padding: 8px 10px;
+}
+.me-actions { margin-top: 10px; }
+.x-status {
+  margin-top: 10px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #0d131c;
+  border: 1px solid var(--border);
+}
+.x-status.ok { border-color: rgba(61,214,140,.35); color: var(--good); }
+.x-status.no { border-color: rgba(245,197,66,.35); color: var(--warn); }
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.col-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+@media (max-width: 720px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 560px) {
   h1 { font-size: 1.15rem; }
   .actions { grid-template-columns: 1fr; }
