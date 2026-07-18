@@ -322,6 +322,14 @@ input[type="text"] { width: 160px; }
   font-size: 0.8rem;
 }
 
+.save-status {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.save-status.ok { color: var(--good); }
+.save-status.pending { color: var(--warn); }
+
 .me-panel h2 { margin-bottom: 6px; }
 .hint, .muted { color: var(--muted); font-size: 0.86rem; line-height: 1.45; }
 .hint { margin: 0 0 10px; }

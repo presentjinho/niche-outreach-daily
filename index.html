@@ -14,6 +14,7 @@
       <div>
         <h1>Niche Outreach Daily</h1>
         <p class="sub">내 계정 기준 · 관련 추천 · 팔로잉 제외 · 하트+댓 체크 · <span id="dateLabel">—</span></p>
+        <p class="save-status ok" id="saveStatus">브라우저 자동저장 준비…</p>
       </div>
       <div class="stats" id="stats"></div>
     </header>
@@ -21,13 +22,13 @@
     <section class="panel me-panel">
       <h2>내 X 계정</h2>
       <p class="hint">
-        웹(GitHub Pages)만으로는 X가 팔로워 목록을 안 줍니다. 아래 <b>붙여넣기</b> 또는
-        로컬 서버+xurl 연동으로 가져옵니다.
+        입력하면 <b>이 브라우저에 자동 저장</b>됩니다 (localStorage). 탭 닫아도 복원.
+        팔로워 자동 수집은 로컬+xurl 또는 붙여넣기.
       </p>
       <div class="row me-row">
         <span class="at">@</span>
         <input type="text" id="myHandle" placeholder="Iluwhite4885" autocomplete="username" />
-        <button class="primary" id="btnSaveMe">저장</button>
+        <button class="ghost" id="btnSaveMe" title="지금 바로 저장 (원래도 입력 시 자동)">지금 저장</button>
         <button class="ghost" id="btnOpenMe">내 프로필</button>
       </div>
       <div class="row me-actions">
@@ -81,7 +82,7 @@
           <div class="col-label">내 팔로잉 (제외용)</div>
           <textarea id="followingText" placeholder="@a&#10;@b"></textarea>
           <div class="row">
-            <button class="primary" id="btnImportFollowing">팔로잉 저장</button>
+            <button class="ghost" id="btnImportFollowing">지금 반영</button>
             <span class="muted" id="followingCount">0</span>
           </div>
         </div>
@@ -89,7 +90,7 @@
           <div class="col-label">내 팔로워 (목록)</div>
           <textarea id="followersText" placeholder="@follower1&#10;@follower2"></textarea>
           <div class="row">
-            <button class="primary" id="btnImportFollowers">팔로워 저장</button>
+            <button class="ghost" id="btnImportFollowers">지금 반영</button>
             <span class="muted" id="followersCount">0</span>
           </div>
         </div>

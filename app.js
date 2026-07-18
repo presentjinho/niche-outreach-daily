@@ -6,6 +6,8 @@ const DEFAULT_STATE = () => ({
   my_handle: "",
   following: [],
   followers: [],
+  following_text: "",
+  followers_text: "",
   skip: [],
   meta: {},
   history: {},
@@ -14,6 +16,7 @@ const DEFAULT_STATE = () => ({
   last_batch_date: "",
   last_batch: [],
   related_boost: [],
+  saved_at: "",
 });
 
 const $ = (s) => document.querySelector(s);
@@ -28,6 +31,23 @@ function toast(msg) {
   el.classList.add("show");
   clearTimeout(toast._t);
   toast._t = setTimeout(() => el.classList.remove("show"), 2400);
+}
+
+function setSaveStatus(msg, ok = true) {
+  const el = $("#saveStatus");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("ok", ok);
+  el.classList.toggle("pending", !ok);
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    setSaveStatus("저장 중…", false);
+    t = setTimeout(() => fn(...args), ms);
+  };
 }
 
 function todayStr() {
@@ -220,9 +240,85 @@ let store = {
 let currentItems = [];
 let xBridge = { available: false, xurl: false, authenticated: false };
 
-function persist() {
-  saveJSON(LS_ACCOUNTS, store.accountsDoc);
-  saveJSON(LS_STATE, store.state);
+function persist(opts = {}) {
+  const silent = !!opts.silent;
+  store.state.saved_at = new Date().toISOString();
+  try {
+    saveJSON(LS_ACCOUNTS, store.accountsDoc);
+    saveJSON(LS_STATE, store.state);
+    if (!silent) {
+      const t = new Date();
+      const hh = String(t.getHours()).padStart(2, "0");
+      const mm = String(t.getMinutes()).padStart(2, "0");
+      const ss = String(t.getSeconds()).padStart(2, "0");
+      setSaveStatus(`브라우저 자동저장 ${hh}:${mm}:${ss}`, true);
+    }
+    return true;
+  } catch (e) {
+    setSaveStatus("저장 실패 (용량/사생활 모드?)", false);
+    if (!silent) toast("저장 실패: " + (e.message || e));
+    return false;
+  }
+}
+
+/** Sync inputs → state and write localStorage (debounced callers) */
+function autoSaveFromInputs(rebuild = false) {
+  const me = normHandle($("#myHandle")?.value || "");
+  store.state.my_handle = me;
+
+  if ($("#followingText")) {
+    const ft = $("#followingText").value;
+    store.state.following_text = ft;
+    store.state.following = parseHandles(ft);
+  }
+  if ($("#followersText")) {
+    const ft = $("#followersText").value;
+    store.state.followers_text = ft;
+    store.state.followers = parseHandles(ft);
+  }
+  if ($("#dailySize")) {
+    store.state.daily_size = Math.max(1, Math.min(50, Number($("#dailySize").value) || 20));
+  }
+  if ($("#cooldown")) {
+    store.state.cooldown_days = Math.max(1, Math.min(90, Number($("#cooldown").value) || 14));
+  }
+
+  persist();
+  if (rebuild) {
+    buildToday(true);
+    render({ skipInputs: true });
+  } else {
+    // light stats only
+    $("#followingCount") &&
+      ($("#followingCount").textContent = `${(store.state.following || []).length}명`);
+    $("#followersCount") &&
+      ($("#followersCount").textContent = `${(store.state.followers || []).length}명`);
+  }
+}
+
+const autoSaveDebounced = debounce(() => autoSaveFromInputs(false), 400);
+const autoSaveRebuildDebounced = debounce(() => autoSaveFromInputs(true), 700);
+
+function wireAutoSave() {
+  const onType = () => autoSaveDebounced();
+  const onFollowing = () => autoSaveRebuildDebounced();
+
+  $("#myHandle")?.addEventListener("input", onType);
+  $("#myHandle")?.addEventListener("change", onType);
+  $("#followingText")?.addEventListener("input", onFollowing);
+  $("#followersText")?.addEventListener("input", onType);
+  $("#dailySize")?.addEventListener("change", onType);
+  $("#dailySize")?.addEventListener("input", onType);
+  $("#cooldown")?.addEventListener("change", onType);
+  $("#cooldown")?.addEventListener("input", onType);
+
+  // flush on leave / hide
+  window.addEventListener("beforeunload", () => {
+    autoSaveFromInputs(false);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") autoSaveFromInputs(false);
+  });
 }
 
 function pill(label, val, cls = "") {
@@ -305,9 +401,24 @@ function buildToday(force = false) {
   return currentItems;
 }
 
-function render() {
+function render(opts = {}) {
+  const skipInputs = !!opts.skipInputs;
   $("#dateLabel").textContent = todayStr();
-  $("#myHandle").value = store.state.my_handle || "";
+  if (!skipInputs) {
+    $("#myHandle").value = store.state.my_handle || "";
+    const fText =
+      store.state.following_text ||
+      (store.state.following || []).map((h) => "@" + h).join("\n");
+    const frText =
+      store.state.followers_text ||
+      (store.state.followers || []).map((h) => "@" + h).join("\n");
+    if ($("#followingText") && document.activeElement !== $("#followingText")) {
+      $("#followingText").value = fText;
+    }
+    if ($("#followersText") && document.activeElement !== $("#followersText")) {
+      $("#followersText").value = frText;
+    }
+  }
   const items = currentItems;
   renderStats({
     pool: (store.accountsDoc.accounts || []).length,
@@ -432,10 +543,12 @@ async function apiFetchList(kind) {
     const handles = (data.handles || []).map(normHandle).filter(Boolean);
     if (kind === "following") {
       store.state.following = [...new Set([...(store.state.following || []), ...handles])].sort();
-      $("#followingText").value = store.state.following.map((h) => "@" + h).join("\n");
+      store.state.following_text = store.state.following.map((h) => "@" + h).join("\n");
+      $("#followingText").value = store.state.following_text;
     } else {
       store.state.followers = [...new Set([...(store.state.followers || []), ...handles])].sort();
-      $("#followersText").value = store.state.followers.map((h) => "@" + h).join("\n");
+      store.state.followers_text = store.state.followers.map((h) => "@" + h).join("\n");
+      $("#followersText").value = store.state.followers_text;
     }
     store.state.my_handle = handle;
     persist();
@@ -544,13 +657,6 @@ async function init() {
     persist();
   }
 
-  if (store.state.following?.length) {
-    $("#followingText").value = store.state.following.map((h) => "@" + h).join("\n");
-  }
-  if (store.state.followers?.length) {
-    $("#followersText").value = store.state.followers.map((h) => "@" + h).join("\n");
-  }
-
   const params = new URLSearchParams(location.search);
   if (params.get("pack")) {
     try {
@@ -564,13 +670,18 @@ async function init() {
   await probeXBridge();
   buildToday(false);
   render();
+  wireAutoSave();
+  if (store.state.saved_at) {
+    setSaveStatus("이전 세션 복원됨 · 자동저장 ON", true);
+  } else {
+    setSaveStatus("브라우저 자동저장 ON", true);
+  }
 }
 
 // events
 $("#btnSaveMe").addEventListener("click", () => {
-  store.state.my_handle = normHandle($("#myHandle").value);
-  persist();
-  toast(store.state.my_handle ? `@${store.state.my_handle} 저장` : "핸들 비움");
+  autoSaveFromInputs(false);
+  toast(store.state.my_handle ? `@${store.state.my_handle} 저장됨` : "핸들 비움");
 });
 
 $("#btnOpenMe").addEventListener("click", () => {
@@ -649,28 +760,19 @@ $("#btnExportFull").addEventListener("click", () => {
   toast("백업 다운로드");
 });
 
-$("#btnSaveSettings").addEventListener("click", () => {
-  store.state.daily_size = Math.max(1, Math.min(50, Number($("#dailySize").value) || 20));
-  store.state.cooldown_days = Math.max(1, Math.min(90, Number($("#cooldown").value) || 14));
-  persist();
-  toast("설정 저장");
-});
-
 $("#btnImportFollowing").addEventListener("click", () => {
-  const handles = parseHandles($("#followingText").value);
-  store.state.following = handles.sort();
-  persist();
-  buildToday(true);
-  render();
-  toast(`팔로잉 ${handles.length}`);
+  autoSaveFromInputs(true);
+  toast(`팔로잉 ${(store.state.following || []).length} · 자동저장`);
 });
 
 $("#btnImportFollowers").addEventListener("click", () => {
-  const handles = parseHandles($("#followersText").value);
-  store.state.followers = handles.sort();
-  persist();
-  render();
-  toast(`팔로워 ${handles.length}`);
+  autoSaveFromInputs(false);
+  toast(`팔로워 ${(store.state.followers || []).length} · 자동저장`);
+});
+
+$("#btnSaveSettings").addEventListener("click", () => {
+  autoSaveFromInputs(false);
+  toast("설정 자동저장됨");
 });
 
 $("#btnAddAccounts").addEventListener("click", () => {
