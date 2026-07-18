@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Niche Outreach Daily — 니치 X 계정 일일 아웃리치 체크리스트. 하트·댓글 수동 트래커. 자동 봇 아님." />
+  <meta name="theme-color" content="#0b0f14" />
+  <title>Niche Outreach Daily</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1 id="appTitle">Niche Outreach Daily</h1>
+        <p class="sub">
+          웹 · localStorage · 미팔로우 위주 · 하트+댓 체크 ·
+          <span id="nicheLabel">—</span> ·
+          <span id="dateLabel">—</span>
+          <span class="badge-web">GitHub Pages</span>
+        </p>
+      </div>
+      <div class="stats" id="stats"></div>
+    </header>
+
+    <div class="banner" id="banner">
+      데이터는 <b>이 브라우저</b>에만 저장됩니다. 공용 PC면 백업 후 사용하세요. 자동 팔로우/댓글 없음.
+    </div>
+
+    <div class="progress" title="오늘 하트+댓 완료 비율"><i id="bar"></i></div>
+
+    <div class="toolbar">
+      <button class="primary" id="btnRefresh">새로고침</button>
+      <button id="btnReshuffle">오늘 다시 뽑기</button>
+      <button class="ghost" id="btnOpenAll">남은 프로필 열기 (5)</button>
+      <button class="ghost" id="btnExportPack">팩 내보내기</button>
+      <button class="ghost" id="btnExportFull">백업 내보내기</button>
+      <label class="inline">일일
+        <input type="number" id="dailySize" min="1" max="50" value="20" />
+      </label>
+      <label class="inline">쿨다운
+        <input type="number" id="cooldown" min="1" max="90" value="14" />
+      </label>
+      <button class="ghost" id="btnSaveSettings">설정 저장</button>
+    </div>
+
+    <div id="grid" class="grid"></div>
+    <div id="empty" class="empty" hidden>
+      오늘 뽑을 사람이 부족합니다. 풀을 늘리거나 팔로우 목록을 정리하세요.
+    </div>
+
+    <section class="panel">
+      <h2>니치 / 앱 이름</h2>
+      <p>분야만 바꿔 쓰면 됩니다. (AI, 웹소설, 디자인…)</p>
+      <div class="row">
+        <label class="inline">앱 이름 <input type="text" id="cfgAppName" /></label>
+        <label class="inline">니치 <input type="text" id="cfgNiche" /></label>
+        <button class="primary" id="btnSaveConfig">저장</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>1) 이미 팔로우 중인 핸들</h2>
+      <p>줄바꿈/쉼표. 등록 핸들은 큐에서 제외.</p>
+      <textarea id="followingText" placeholder="@someone&#10;another_handle"></textarea>
+      <div class="row">
+        <button class="primary" id="btnImportFollowing">팔로우 목록 합치기</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>2) 풀에 계정 추가</h2>
+      <p><code>handle</code> 또는 <code>handle 이름 #tag</code></p>
+      <textarea id="addText" placeholder="creator_a 이름 #video"></textarea>
+      <div class="row">
+        <button class="primary" id="btnAddAccounts">풀에 추가</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>3) 팩 가져오기</h2>
+      <p>JSON 붙여넣기. merge / replace. state 포함 시 복원 가능.</p>
+      <textarea id="packText" placeholder='{"format":"niche-outreach-pack",...}'></textarea>
+      <div class="row">
+        <label class="inline"><input type="radio" name="packMode" value="merge" checked /> merge</label>
+        <label class="inline"><input type="radio" name="packMode" value="replace" /> replace</label>
+        <label class="inline"><input type="checkbox" id="importState" /> state 포함</label>
+        <button class="primary" id="btnImportPack">가져오기</button>
+      </div>
+      <div class="row">
+        <label class="inline" style="flex:1">원격 팩 URL
+          <input type="text" id="packUrl" style="width:min(100%,320px)" placeholder="https://.../pack.json" />
+        </label>
+        <button id="btnLoadPackUrl">URL에서 로드</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>사용 · 공유</h2>
+      <p>
+        ① 오늘 카드 → ② 프로필 → ③ 하트 + 가치 댓글 1 → ④ 체크 → ⑤ 원글.<br />
+        진행 기록은 localStorage. PC 이동 시 <b>백업 내보내기</b> 후 가져오기.<br />
+        로컬 Python 버전: 같은 레포의 상위 폴더 <code>run.bat</code>.
+      </p>
+      <div class="row">
+        <button class="ghost" id="btnResetLocal" title="이 브라우저 데이터 초기화">브라우저 데이터 초기화</button>
+      </div>
+    </section>
+
+    <footer class="foot">
+      Niche Outreach Daily · MIT · 수동 체크리스트 (봇 아님)
+    </footer>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

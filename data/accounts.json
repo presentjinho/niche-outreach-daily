@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "pack_name": "kr-ai-creators-starter",
+  "note": "KR AI 스타터 팩 (실존 확인 위주). GUI에서 계속 추가·내보내기 가능.",
+  "accounts": [
+    {"handle": "nowlovepan", "name": "감자", "tags": ["video", "prompt", "creator"], "tier": "core", "verified": true, "note": "AI 활용·유튜브·프롬프트"},
+    {"handle": "impalementd", "name": "1p(1mpal)", "tags": ["video", "tool", "creator"], "tier": "core", "verified": true, "note": "AI 영상·트렌디 데모"},
+    {"handle": "checheluna3", "name": "LunaKim", "tags": ["video", "image", "prompt"], "tier": "core", "verified": true, "note": "AI 이미지·영상 스토리·훅"},
+    {"handle": "__blackpig", "name": "흑돼지", "tags": ["video", "tool", "review"], "tier": "core", "verified": true, "note": "AI 툴 순위·리뷰"},
+    {"handle": "ramztd", "name": "람쥐썬더", "tags": ["video", "vibe", "coding"], "tier": "core", "verified": true, "note": "AI 애니·바이브코딩"},
+    {"handle": "cso6709", "name": "돈미새", "tags": ["video", "prompt", "edu"], "tier": "core", "verified": true, "note": "AI creator·교육 허브"},
+    {"handle": "AI_Caffeine", "name": "AI 카페인", "tags": ["tool", "prompt", "automation"], "tier": "core", "verified": true, "note": "툴·프롬프트·자동화"},
+    {"handle": "hmmmmmm1458", "name": "H", "tags": ["prompt", "video", "tip"], "tier": "core", "verified": true, "note": "영상 프롬프트 팁"},
+    {"handle": "_nodelay", "name": "유기용", "tags": ["coding", "agent", "hermes"], "tier": "core", "verified": true, "note": "LLM·Hermes·로컬"},
+    {"handle": "parkthomson075", "name": "박톰슨", "tags": ["coding", "agent", "opinion"], "tier": "mid", "verified": true, "note": "에이전트·코딩 의견"},
+    {"handle": "yulmu_coffee", "name": "율무커피", "tags": ["llm", "build", "invest"], "tier": "mid", "verified": true, "note": "AI·서비스 빌드"},
+    {"handle": "rainygirl_", "name": "rainygirl", "tags": ["dev", "claude", "engineering"], "tier": "mid", "verified": true, "note": "엔지니어·Claude Code"},
+    {"handle": "yozm_it", "name": "요즘IT", "tags": ["it", "tool", "media"], "tier": "mid", "verified": true, "note": "IT·AI 활용 글"},
+    {"handle": "magic_ai_skill", "name": "MagicAI", "tags": ["tip", "growth"], "tier": "mid", "verified": true, "note": "AI 팁"},
+    {"handle": "won_story", "name": "WonStory", "tags": ["tech", "insight"], "tier": "mid", "verified": true, "note": "기술·사회 인사이트"},
+    {"handle": "Nezko2026", "name": "Nezko", "tags": ["video", "higgsfield"], "tier": "mid", "verified": true, "note": "AI video"},
+    {"handle": "nabichat1905", "name": "나비챗", "tags": ["tool", "video", "app"], "tier": "mid", "verified": true, "note": "AI 캐릭터·툴"},
+    {"handle": "stelo_kim", "name": "탐정토끼", "tags": ["policy", "dev", "ethics"], "tier": "edge", "verified": true, "note": "AI·법·개발"},
+    {"handle": "tchinnom", "name": "테친냥", "tags": ["prompt", "meme"], "tier": "edge", "verified": true, "note": "프롬프트 드립"},
+    {"handle": "ohmahahm", "name": "오함마", "tags": ["news", "ai"], "tier": "mid", "verified": true, "note": "AI 뉴스 요약"},
+    {"handle": "Lonnie__X", "name": "로니", "tags": ["x-growth", "pay"], "tier": "growth", "verified": true, "note": "X 성장·주급 (네트워크)"},
+    {"handle": "JUN_0013", "name": "준", "tags": ["x-growth", "pay"], "tier": "growth", "verified": true, "note": "X 정직원 팁"},
+    {"handle": "moneyonnnnn", "name": "돈다발라이터", "tags": ["x-growth", "money"], "tier": "growth", "verified": true, "note": "X·부업 루틴"},
+    {"handle": "mad_dogdebt", "name": "빚갚는미친개", "tags": ["sidehustle", "growth"], "tier": "growth", "verified": true, "note": "부업·수익화"}
+  ]
+}
