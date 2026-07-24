@@ -239,9 +239,15 @@ let store = {
 };
 let currentItems = [];
 let xBridge = { available: false, xurl: false, authenticated: false };
+let externalChangePending = false;
 
 function persist(opts = {}) {
   const silent = !!opts.silent;
+  if (externalChangePending) {
+    setSaveStatus("다른 탭에서 변경됨 · 여기를 눌러 새로고침", false);
+    if (!silent) toast("다른 탭의 최신 변경을 먼저 불러와 주세요");
+    return false;
+  }
   store.state.saved_at = new Date().toISOString();
   try {
     saveJSON(LS_ACCOUNTS, store.accountsDoc);
@@ -318,6 +324,32 @@ function wireAutoSave() {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") autoSaveFromInputs(false);
+  });
+
+  const saveStatus = $("#saveStatus");
+  const reloadExternalChange = () => {
+    if (externalChangePending) location.reload();
+  };
+  saveStatus?.addEventListener("click", reloadExternalChange);
+  saveStatus?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") reloadExternalChange();
+  });
+
+  window.addEventListener("storage", (event) => {
+    if (event.key !== LS_ACCOUNTS && event.key !== LS_STATE) return;
+    if (document.visibilityState === "hidden") {
+      location.reload();
+      return;
+    }
+    externalChangePending = true;
+    const status = $("#saveStatus");
+    if (status) {
+      status.title = "다른 탭의 최신 데이터를 불러옵니다";
+      status.tabIndex = 0;
+      status.setAttribute("role", "button");
+    }
+    setSaveStatus("다른 탭에서 변경됨 · 여기를 눌러 새로고침", false);
+    toast("다른 탭에서 데이터가 바뀌었습니다");
   });
 }
 
